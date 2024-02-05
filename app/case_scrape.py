@@ -2,9 +2,22 @@ import requests
 import pandas as pd
 from bs4 import BeautifulSoup
 import re
+import datetime
+import os
+import boto3
 
 
 def scrape(date):
+    # ctx = ssl.create_default_context()
+    # ctx.check_hostname = False
+    # ctx.verify_mode = ssl.CERT_NONE
+
+    s3 = boto3.client(
+        "s3",
+        aws_access_key_id=os.environ["AWS_ACCESS_KEY"],
+        aws_secret_access_key=os.environ["AWS_SECRET_ACCESS_KEY"],
+    )
+
     url = "https://dhccaseinfo.nic.in/jsearch/juddt1page.php?dc=31&fflag=1"
     data = {"juddt": date, "Submit": "Submit"}
     home = requests.post(
@@ -87,7 +100,39 @@ def scrape(date):
         global_df = global_df._append(df2, ignore_index=True)
 
         if len(global_df) == records_total:
+            formatted_date = datetime.datetime.strptime(date, "%d/%m/%Y").strftime(
+                "%Y%m%d"
+            )
             print(f"Scrap for {date} complete")
+            global_df["body_content"] = None
+            directory = f"cases/date={formatted_date}"
+            os.makedirs(directory, exist_ok=True)
+
+            for i in range(len(global_df)):
+                # response = urlopen(global_df.iloc[i, 1], context=ctx)
+                response = requests.get(global_df.iloc[i, 1])
+                data_soup = BeautifulSoup(response.content, "html.parser")
+                body_content = data_soup
+                print(global_df.iloc[i, 1])
+                case = global_df.iloc[i, 0]
+                cleaned_name = re.sub(r"[^\w\s]", "", case)
+                cleaned_name = cleaned_name.replace(" ", "_")
+
+                print(case)
+                output_directory = f"Cases/date={formatted_date}/{cleaned_name}.txt"
+                text = body_content.get_text()
+                if text.startswith("$"):
+                    lines = text.split("\n")
+                    text = "\n".join(lines[1:])
+
+                s3.put_object(
+                    Bucket="digital-adhivakta",
+                    Key=output_directory,
+                    Body=text.encode("utf-8"),
+                )
+                print(f"Text content saved to S3 bucket with key: {output_directory}")
+
+                # print(body_content)
 
 
 scrape("14/09/2023")
