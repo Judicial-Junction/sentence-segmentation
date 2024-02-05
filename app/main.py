@@ -2,7 +2,6 @@ from typing import Union
 from uvicorn.workers import UvicornWorker
 from fastapi import FastAPI
 import requests
-
 # from case_tokenization import segment
 from bs4 import BeautifulSoup
 import spacy
@@ -62,7 +61,6 @@ def scrape(date):
 
     # page links
     page_links = table.find_all(class_="page_link")
-    page_links
     base_url = "https://dhccaseinfo.nic.in"
     unique_links = set()
     for page_link in page_links:
@@ -131,9 +129,7 @@ def scrape(date):
         if len(global_df) == records_total:
             print(f"Scrap for {date} complete")
             global_df["body_content"] = None
-            directory = f"cases/date={formatted_date}"
-            os.makedirs(directory, exist_ok=True)
-
+            ouput_date = formatted_date.strftime("%Y%m%d")
             for i in range(len(global_df)):
                 # response = urlopen(global_df.iloc[i, 1], context=ctx)
                 response = requests.get(global_df.iloc[i, 1])
@@ -145,7 +141,7 @@ def scrape(date):
                 cleaned_name = cleaned_name.replace(" ", "_")
 
                 print(case)
-                output_directory = f"Cases/date={formatted_date}/{cleaned_name}.txt"
+                output_directory = f"Cases/date={ouput_date}/{cleaned_name}.txt"
                 text = body_content.get_text()
                 if text.startswith("$"):
                     lines = text.split("\n")
@@ -156,7 +152,7 @@ def scrape(date):
                     Key=output_directory,
                     Body=text.encode("utf-8"),
                 )
-                print(f"Text content saved to S3 bucket with key: {output_directory}")
+                print(f"Text saved to S3: {output_directory}")
 
                 # print(body_content)
 
@@ -188,6 +184,7 @@ def segment(date: str):
     response = s3.list_objects_v2(Bucket=s3_bucket, Prefix=prefix)
 
     files = response.get("Contents", [])
+    print("Tokenizing..")
     cases = []
     for file in files:
         file_key = file.get("Key")
@@ -203,10 +200,11 @@ def segment(date: str):
         doc = nlp(case_content)
 
         sentences = [sent.text for sent in doc.sents]
-
+        pattern = re.compile(fr"{re.escape(prefix)}\/?(.+?)(\.txt)?$")
+        match = pattern.match(case)
         case_data.append(
             {
-                "case_no": case,
+                "case_no": match.group(1),
                 "datedate_of_judgement": date_formatted,
                 "tokens": sentences,
             }
@@ -222,3 +220,4 @@ def segment(date: str):
         Bucket=s3_bucket,
         Key=f"Tokens/date_{date_formatted}.csv",
     )
+    print("tokens uploaded to s3")
